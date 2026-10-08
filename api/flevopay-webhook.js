@@ -11,24 +11,7 @@ function sha256(value) {
   return crypto.createHash('sha256').update(String(value).trim().toLowerCase()).digest('hex');
 }
 
-async function pushTikTokPurchase({ transactionId, amountReais, customer }) {
-  const pixelId = process.env.TIKTOK_PIXEL_ID;
-  const accessToken = process.env.TIKTOK_ACCESS_TOKEN;
-  if (!pixelId || !accessToken) return;
-
-  const user = {};
-  if (customer.email) user.email = sha256(customer.email);
-  const phoneDigits = onlyDigits(customer.phone);
-  if (phoneDigits) {
-    const e164 = phoneDigits.startsWith('55') ? `+${phoneDigits}` : `+55${phoneDigits}`;
-    // A doc pública da TikTok Events API não deixa 100% claro se a chave é "phone" ou
-    // "phone_number" nessa versão; mandamos as duas (chaves extras são ignoradas).
-    user.phone = sha256(e164);
-    user.phone_number = sha256(e164);
-  }
-  const docDigits = onlyDigits(customer.document);
-  if (docDigits) user.external_id = sha256(docDigits);
-
+async function sendTikTokEvent({ pixelId, accessToken, transactionId, amountReais, user }) {
   const eventBody = {
     event_source: 'web',
     event_source_id: pixelId,
@@ -52,10 +35,34 @@ async function pushTikTokPurchase({ transactionId, amountReais, customer }) {
       headers: { 'Access-Token': accessToken, 'Content-Type': 'application/json' },
       body: JSON.stringify(eventBody),
     });
-    if (!r.ok) console.error('TikTok event failed', r.status, await r.text().catch(() => ''));
+    if (!r.ok) console.error('TikTok event failed', pixelId, r.status, await r.text().catch(() => ''));
   } catch (err) {
-    console.error('TikTok event error', err);
+    console.error('TikTok event error', pixelId, err);
   }
+}
+
+async function pushTikTokPurchase({ transactionId, amountReais, customer }) {
+  // Suporta até 2 pixels (duas contas de anúncio) recebendo o mesmo evento de compra.
+  const pixels = [
+    { pixelId: process.env.TIKTOK_PIXEL_ID, accessToken: process.env.TIKTOK_ACCESS_TOKEN },
+    { pixelId: process.env.TIKTOK_PIXEL_ID_2, accessToken: process.env.TIKTOK_ACCESS_TOKEN_2 },
+  ].filter(p => p.pixelId && p.accessToken);
+  if (!pixels.length) return;
+
+  const user = {};
+  if (customer.email) user.email = sha256(customer.email);
+  const phoneDigits = onlyDigits(customer.phone);
+  if (phoneDigits) {
+    const e164 = phoneDigits.startsWith('55') ? `+${phoneDigits}` : `+55${phoneDigits}`;
+    // A doc pública da TikTok Events API não deixa 100% claro se a chave é "phone" ou
+    // "phone_number" nessa versão; mandamos as duas (chaves extras são ignoradas).
+    user.phone = sha256(e164);
+    user.phone_number = sha256(e164);
+  }
+  const docDigits = onlyDigits(customer.document);
+  if (docDigits) user.external_id = sha256(docDigits);
+
+  await Promise.all(pixels.map(p => sendTikTokEvent({ ...p, transactionId, amountReais, user })));
 }
 
 module.exports = async (req, res) => {
