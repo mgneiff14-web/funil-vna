@@ -42,12 +42,9 @@ async function sendTikTokEvent({ pixelId, accessToken, transactionId, amountReai
 }
 
 async function pushTikTokPurchase({ transactionId, amountReais, customer }) {
-  // Suporta até 2 pixels (duas contas de anúncio) recebendo o mesmo evento de compra.
-  const pixels = [
-    { pixelId: process.env.TIKTOK_PIXEL_ID, accessToken: process.env.TIKTOK_ACCESS_TOKEN },
-    { pixelId: process.env.TIKTOK_PIXEL_ID_2, accessToken: process.env.TIKTOK_ACCESS_TOKEN_2 },
-  ].filter(p => p.pixelId && p.accessToken);
-  if (!pixels.length) return;
+  const pixelId = process.env.TIKTOK_PIXEL_ID;
+  const accessToken = process.env.TIKTOK_ACCESS_TOKEN;
+  if (!pixelId || !accessToken) return;
 
   const user = {};
   if (customer.email) user.email = sha256(customer.email);
@@ -62,7 +59,7 @@ async function pushTikTokPurchase({ transactionId, amountReais, customer }) {
   const docDigits = onlyDigits(customer.document);
   if (docDigits) user.external_id = sha256(docDigits);
 
-  await Promise.all(pixels.map(p => sendTikTokEvent({ ...p, transactionId, amountReais, user })));
+  await sendTikTokEvent({ pixelId, accessToken, transactionId, amountReais, user });
 }
 
 module.exports = async (req, res) => {
